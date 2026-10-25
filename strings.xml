@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Harmonica Auto</string>
+    <string name="svc_desc">Hiện bảng nổi và tự chạm các phím kèn theo bài đã nạp.</string>
+</resources>
