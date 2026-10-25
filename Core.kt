@@ -30,41 +30,59 @@ class Act(val t: Long, val strokes: List<Stk>)
 fun regIdx(o: String) = when (o) { "low" -> 0; "high" -> 2; else -> 1 }
 fun regBtn(r: Int) = when (r) { 0 -> 3; 2 -> 1; else -> 2 }
 
+private class Pn(val start: Long, val dur: Long, val key: Int, val sharp: Boolean, val pre: List<Int>)
+
 /**
- * Đổi bài thành danh sách thao tác chạm theo thời gian (ms).
- * Nút tông/nửa cung chỉ đổi trạng thái cho các nốt sau: chạm nút, chạm nốt,
- * rồi chạm ngược về tông của bài trước nốt kế tiếp cần tông khác.
+ * Phím kèn kêu theo thời gian giữ, nên mỗi nốt được GIỮ đúng độ dài của nó
+ * (trừ một khoảng ngắt nhỏ để tách nốt). Nút tông/nửa cung chỉ cần chạm ngắn,
+ * được xếp vào khoảng nhả giữa hai nốt. Tham số tap (nút "Chạm") giờ là độ ngắt giữa các nốt.
+ * Ba nút tông là nhóm chọn 1 trong 3 (mặc định ở giữa): đầu bài chạm nút tông của bài để đồng bộ.
  */
 fun compile(song: Song, tap: Long, scale: Double, hold: Boolean): List<Act> {
     val spb = 60000.0 / (song.bpm * scale)
-    val out = ArrayList<Act>()
+    val gap = maxOf(15L, tap / 2)
+    val bt = 70L
+    val step = bt + 30
     val base = regIdx(song.base)
+    val out = ArrayList<Act>()
+    out.add(Act(0, listOf(Stk(regBtn(base), 0, bt))))
+
+    val ns = ArrayList<Pn>()
     var reg = base
     var sharp = false
-    var prevEnd = 0L
-    fun press(p: Int, t: Long) {
-        val latest = t - tap - 25
-        val tp = maxOf(prevEnd + 25, latest - 100)
-        out.add(Act(tp, listOf(Stk(p, 0, tap))))
-        prevEnd = tp + tap
-    }
     for (n in song.notes) {
         if (n.k <= 0) continue
-        val t = (n.t * spb).toLong() + 400
         val r = regIdx(n.o)
-        if (r != reg) { press(regBtn(r), t); reg = r }
+        val pre = ArrayList<Int>()
+        if (r != reg) { pre.add(regBtn(r)); reg = r }
         val want = n.s == 1
-        if (!hold && want != sharp) { press(0, t); sharp = want }
-        val tn = maxOf(t, prevEnd + 15)
-        val key = 3 + n.k
-        if (hold && want) {
-            out.add(Act(tn - 40, listOf(Stk(0, 0, tap + 80), Stk(key, 40, tap))))
-        } else {
-            out.add(Act(tn, listOf(Stk(key, 0, tap))))
-        }
-        prevEnd = tn + tap
+        if (!hold && want != sharp) { pre.add(0); sharp = want }
+        ns.add(Pn((n.t * spb).toLong() + 600, (n.d * spb).toLong(), 3 + n.k, want, pre))
     }
-    if (reg != base) press(regBtn(base), prevEnd + 400)
-    if (sharp) press(0, prevEnd + 400)
+
+    var lastEnd = 0L
+    for ((i, n) in ns.withIndex()) {
+        var end = n.start + n.dur - gap
+        if (i + 1 < ns.size) {
+            val nx = ns[i + 1]
+            val preStart = nx.start - nx.pre.size * step - 20
+            end = minOf(end, preStart - 20)
+        }
+        end = maxOf(end, n.start + 40)
+        val len = end - n.start
+        var tp = n.start - n.pre.size * step - 20
+        for (p in n.pre) { out.add(Act(tp, listOf(Stk(p, 0, bt)))); tp += step }
+        if (hold && n.sharp) {
+            out.add(Act(n.start - 20, listOf(Stk(0, 0, len + 40), Stk(n.key, 20, len))))
+        } else {
+            out.add(Act(n.start, listOf(Stk(n.key, 0, len))))
+        }
+        lastEnd = end
+    }
+
+    // cuối bài: chạm về tông của bài, tắt nửa cung
+    var tp = lastEnd + 120
+    if (reg != base) { out.add(Act(tp, listOf(Stk(regBtn(base), 0, bt)))); tp += step }
+    if (sharp) out.add(Act(tp, listOf(Stk(0, 0, bt))))
     return out
 }
